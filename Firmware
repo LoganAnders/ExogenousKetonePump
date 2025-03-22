@@ -1,1 +1,96 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <BluetoothSerial.h>
+
+#define PUMP_PIN  25   // GPIO for MOSFET controlling peristaltic pump
+#define FLOW_SENSOR_PIN 34  // Optional: Flow sensor input
+#define KETONE_SENSOR_PIN 35 // Optional: Ketone sensor input
+#define OLED_RESET -1  // OLED reset pin
+#define BATTERY_PIN  36  // Optional: Battery voltage monitoring
+
+Adafruit_SSD1306 display(128, 64, &Wire, OLED_RESET);
+BluetoothSerial SerialBT;
+
+bool pumpActive = false;
+int pumpSpeed = 255; // Default speed (PWM 0-255)
+
+// Function to start/stop the pump
+void controlPump(bool state, int speed) {
+    if (state) {
+        analogWrite(PUMP_PIN, speed);
+    } else {
+        analogWrite(PUMP_PIN, 0);
+    }
+    pumpActive = state;
+}
+
+// Function to read ketone sensor (if connected)
+float readKetoneLevels() {
+    return analogRead(KETONE_SENSOR_PIN) * (3.3 / 4095.0);  // Convert ADC value to voltage
+}
+
+// Function to read battery level
+float readBatteryLevel() {
+    return analogRead(BATTERY_PIN) * (3.3 / 4095.0) * 2;  // Adjusted for resistor divider
+}
+
+void setup() {
+    Serial.begin(115200);
+    SerialBT.begin("KetonePump");  // Bluetooth device name
+    pinMode(PUMP_PIN, OUTPUT);
+    pinMode(FLOW_SENSOR_PIN, INPUT);
+    pinMode(KETONE_SENSOR_PIN, INPUT);
+    pinMode(BATTERY_PIN, INPUT);
+    
+    // Initialize OLED display
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println("OLED init failed");
+    } else {
+        display.clearDisplay();
+        display.setTextSize(1);
+        display.setTextColor(WHITE);
+        display.setCursor(0,0);
+        display.println("Ketone Pump Ready");
+        display.display();
+    }
+}
+
+void loop() {
+    // Read Bluetooth commands
+    if (SerialBT.available()) {
+        String command = SerialBT.readStringUntil('\n');
+        command.trim();
+
+        if (command == "ON") {
+            controlPump(true, pumpSpeed);
+            SerialBT.println("Pump ON");
+        } else if (command == "OFF") {
+            controlPump(false, 0);
+            SerialBT.println("Pump OFF");
+        } else if (command.startsWith("SPEED:")) {
+            pumpSpeed = command.substring(6).toInt();
+            if (pumpActive) controlPump(true, pumpSpeed);
+            SerialBT.println("Speed set to " + String(pumpSpeed));
+        }
+    }
+
+    // Read ketone levels (if sensor connected)
+    float ketoneLevel = readKetoneLevels();
+
+    // Read battery level
+    float batteryLevel = readBatteryLevel();
+
+    // Display info on OLED
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Ketone Pump");
+    display.println(pumpActive ? "Status: ON" : "Status: OFF");
+    display.println("Speed: " + String(pumpSpeed));
+    display.println("Ketones: " + String(ketoneLevel, 2) + "V");
+    display.println("Battery: " + String(batteryLevel, 2) + "V");
+    display.display();
+
+    delay(500);
+}
 
